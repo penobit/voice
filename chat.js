@@ -7,6 +7,9 @@ const app = new Vue({
   el: "#app",
   mounted: function () {
     this.askForMediaDevices();
+    if (this.usernameInput && this.usernameInput.length > 0) {
+      this.submitLogin();
+    }
   },
   data: {
     screen: "login", // initialize at login screen
@@ -22,12 +25,6 @@ const app = new Vue({
     calls: {},
     stream: null,
   },
-  // in case you want to enable automatic login
-  /*mounted: function () {
-            if (this.usernameInput && this.usernameInput.length > 0) {
-                this.submitLogin();
-            }
-        },*/
   watch: {
     chats: function () {
       const chatbox = document.getElementById("chatbox");
@@ -75,6 +72,9 @@ const app = new Vue({
     disconnectPeer: function () {
       this.peer.disconnect();
     },
+    connectPeer: function () {
+      this.createPeer();
+    },
 
     // called to properly configure connection's client listeners
     configureConnection: function (conn) {
@@ -116,12 +116,16 @@ const app = new Vue({
           },
           serialization: "json",
         };
-        const conn = this.peer.connect(peerId, options);
-        const call = this.peer.call(peerId, this.stream);
 
-        call.on("stream", (stream) => {
-          this.addCall(peerId, stream);
-        });
+        const conn = this.peer.connect(peerId, options);
+
+        if (this.stream) {
+          const call = this.peer.call(peerId, this.stream);
+
+          call.on("stream", (stream) => {
+            this.addCall(peerId, stream);
+          });
+        }
 
         this.configureConnection(conn);
 
@@ -145,18 +149,22 @@ const app = new Vue({
         stream,
         audio,
       };
-
-      console.log(audio, stream);
     },
+
     createPeer: function () {
       // options are useful in development to connect to local peerjs server
-      this.peer = new Peer(
-        this.getPeerId(this.usernameInput) /*, {
-                        host: 'localhost',
-                        port: 8080,
-                        path: 'app'
-                    }*/
-      );
+      this.peer = new Peer(this.getPeerId(this.usernameInput), {
+        config: {
+          iceServers: [
+            { urls: "stun:stun.l.google.com:19302" },
+            {
+              urls: "turn:0.peerjs.com:3478",
+              username: "peerjs",
+              credential: "peerjsp",
+            },
+          ],
+        },
+      });
 
       // when peer is connected to signaling server
       this.peer.on("open", () => {
@@ -164,26 +172,27 @@ const app = new Vue({
         this.loading = false;
         this.peerError = "";
       });
+
       // error listener
       this.peer.on("error", (error) => {
         this.loading = false;
         if (error.type === "peer-unavailable") {
           // if connection with new peer can't be established
-          this.loading = false;
-          this.peerError = `${this.targetIdInput} is unreachable!`; // custom error message
+          this.peerError = `${this.targetIdInput} is not online!`; // custom error message
           this.targetIdInput = "";
         } else if (error.type === "unavailable-id") {
           // if requested id (thus username) is already taken
-          this.loading = false;
           this.peerError = `${this.usernameInput} is already taken!`; // custom error message
         } else this.peerError = error; // default error message
       });
 
       this.peer.on("call", (call) => {
-        call.answer(this.stream);
-        call.on("stream", (stream) => {
-          this.addCall(call.id, stream);
-        });
+        if (this.stream) {
+          call.answer(this.stream);
+          call.on("stream", (stream) => {
+            this.addCall(call.id, stream);
+          });
+        }
       });
 
       // when peer receives a connection
